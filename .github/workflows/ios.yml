@@ -16,7 +16,6 @@ on:
 env:
   GODOT_VERSION: "4.7.2"
   PROJECT_NAME: "PirateArena"
-  BUNDLE_ID: "com.piratearena.game"
 
 jobs:
   build:
@@ -54,32 +53,35 @@ jobs:
       - name: Версия Xcode
         run: xcodebuild -version
 
-      - name: Проверка синтаксиса скриптов
-        working-directory: ${{ github.workspace }}
+      - name: Импорт ресурсов (создать .godot)
         run: |
-          "$HOME/godot/Godot.app/Contents/MacOS/Godot" --headless --path . --quit-after 2 || true
+          "$HOME/godot/Godot.app/Contents/MacOS/Godot" --headless --path . --import
 
       - name: Экспорт Xcode-проекта
         run: |
-          set -euo pipefail
+          set -uo pipefail
           mkdir -p build/ios
+          # export_project_only=true в пресете, но если движок всё же попробует
+          # собрать .ipa без сертификатов — это не ошибка, проект уже создан.
           "$HOME/godot/Godot.app/Contents/MacOS/Godot" --headless --verbose \
-            --path . --export-release "iOS" "build/ios/${PROJECT_NAME}.xcodeproj"
+            --path . --export-release "iOS" "build/ios/${PROJECT_NAME}" || true
+          test -d "build/ios/${PROJECT_NAME}.xcodeproj" || { echo "Xcode-проект не создан"; exit 1; }
 
       - name: Сборка .app без подписи
         run: |
           set -euo pipefail
-          cd "build/ios"
-          ls -la
+          cd build/ios
           xcodebuild \
             -project "${PROJECT_NAME}.xcodeproj" \
             -scheme "${PROJECT_NAME}" \
             -configuration Release \
             -sdk iphoneos \
+            -destination "generic/platform=iOS" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
             DEVELOPMENT_TEAM="" \
             build
 
