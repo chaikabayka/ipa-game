@@ -61,6 +61,8 @@ build/ios/PirateArena.pck              ← ресурсы игры
 
 Почему без подписи: подпись требует сертификат Apple Developer ($99/год). Неподписанный `.ipa` ставится через Sideloadly/AltStore — они подписывают его твоим бесплатным Apple ID уже на Windows.
 
+Важно: раннер должен быть `macos-26` (Xcode 26). Шаблоны Godot 4.7.2 собраны под iOS 26 SDK; на Xcode 16 линковка падает с `Undefined symbols: _MTLTensorDomain, _CADynamicRange*`.
+
 ```powershell
 cd 'C:\Users\user\Documents\Проект по умолчанию'
 # репозиторий уже инициализирован и первый коммит сделан
