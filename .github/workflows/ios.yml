@@ -9,7 +9,6 @@ on:
   push:
     branches: [main, master]
     paths-ignore:
-      - ".github/**"
       - "docs/**"
       - "*.md"
 
@@ -19,7 +18,7 @@ env:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
 
     steps:
