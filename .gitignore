@@ -20,3 +20,10 @@ desktop.ini
 
 # Прочее
 *.log
+
+# Сторонние папки, не относящиеся к игре
+GrannyCheat/
+bloody-vr/
+bin/
+obj/
+*.csproj
