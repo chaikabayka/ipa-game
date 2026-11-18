@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>BLOOD ARENA — VR Zombie Shooter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<style>
+  body { background:#000; }
+  .fade { transition: opacity .5s; }
+</style>
+</head>
+<body>
+<a-scene
+  blood-arena
+  fog="type: linear; color: #0a0000; near: 8; far: 40"
+  background="color: #0a0000"
+  loading-screen="dotsColor: #ff2222; backgroundColor: #050000">
+
+  <!-- ============ ОКРУЖЕНИЕ ============ -->
+  <a-plane rotation="-90 0 0" width="60" height="60" color="#150808" material="roughness: 1"></a-plane>
+  <a-sky color="#0a0000"></a-sky>
+
+  <!-- Столбы арены -->
+  <a-entity pillar="pos: -8 -8"></a-entity>
+  <a-entity pillar="pos: -8 8"></a-entity>
+  <a-entity pillar="pos: 8 -8"></a-entity>
+  <a-entity pillar="pos: 8 8"></a-entity>
+  <a-entity pillar="pos: -14 0"></a-entity>
+  <a-entity pillar="pos: 14 0"></a-entity>
+  <a-entity pillar="pos: 0 -14"></a-entity>
+  <a-entity pillar="pos: 0 14"></a-entity>
+
+  <!-- Жуткие факелы-огни -->
+  <a-entity light="type: point; color: #ff3300; intensity: 1.2; distance: 20" position="0 4 0"></a-entity>
+  <a-entity light="type: point; color: #ff2200; intensity: 0.6; distance: 15" position="-10 3 -10"></a-entity>
+  <a-entity light="type: point; color: #ff2200; intensity: 0.6; distance: 15" position="10 3 -10"></a-entity>
+  <a-entity light="type: ambient; color: #552222; intensity: 0.4"></a-entity>
+  <a-entity id="player-light" light="type: point; color: #ffffff; intensity: 0.35; distance: 8" position="0 2 0"></a-entity>
+
+  <!-- ============ ИГРОК ============ -->
+  <a-entity id="rig">
+    <a-entity id="camera" camera="fov: 80; near: 0.05" look-controls="pointerLockEnabled: true"
+              position="0 1.6 0" wasd-controls="acceleration: 12">
+      <!-- Прицел (для десктопа) -->
+      <a-entity cursor="fuse: false; rayOrigin: mouse"
+                raycaster="objects: .zombie; far: 40; interval: 100"
+                geometry="primitive: ring; radiusInner: 0.006; radiusOuter: 0.009"
+                position="0 0 -0.5"
+                material="color: #ff2222; shader: flat; opacity: 0.9"></a-entity>
+
+      <!-- HUD -->
+      <a-entity id="hud" position="0 0.28 -0.8" text="align: center; color: #ff3333; width: 1.2; value: SCORE 0">
+      </a-entity>
+      <a-entity id="hearts" position="0 0.22 -0.8">
+        <a-box class="heart" width="0.06" height="0.06" depth="0.02" position="-0.09 0 0" material="shader: flat; color: #ff2222"></a-box>
+        <a-box class="heart" width="0.06" height="0.06" depth="0.02" position="0 0 0" material="shader: flat; color: #ff2222"></a-box>
+        <a-box class="heart" width="0.06" height="0.06" depth="0.02" position="0.09 0 0" material="shader: flat; color: #ff2222"></a-box>
+      </a-entity>
+      <a-entity id="message" position="0 0.12 -0.8" text="align: center; color: #ffffff; width: 1.6; value: THEY ARE COMING... SHOOT!">
+      </a-entity>
+      <a-entity id="gameover" class="fade" visible="false" position="0 -0.05 -0.8" text="align: center; color: #ff1111; width: 2; value: YOU DIED&#10;&#10;CLICK TO RESTART">
+      </a-entity>
+    </a-entity>
+
+    <!-- Правая рука: лазерный прицел + стрельба -->
+    <a-entity id="hand-r" laser-controls="hand: right"
+              raycaster="objects: .zombie; far: 40; interval: 80; lineColor: #ff2222; lineOpacity: 0.7">
+    </a-entity>
+
+    <!-- Левая рука: тоже стреляет -->
+    <a-entity id="hand-l" laser-controls="hand: left"
+              raycaster="objects: .zombie; far: 40; interval: 80; lineColor: #ff2222; lineOpacity: 0.7">
+    </a-entity>
+  </a-entity>
+
+  <!-- Контейнер для зомби и эффектов -->
+  <a-entity id="zombies"></a-entity>
+  <a-entity id="fx"></a-entity>
+</a-scene>
+
+<script>
+// ======================================================
+//  BLOOD ARENA — WebXR зомби-шутер (A-Frame)
+// ======================================================
+
+var RIG = document.getElementById('rig');
+var CAM = document.getElementById('camera');
+var FX = document.getElementById('fx');
+var ZOMBIES = document.getElementById('zombies');
+var HUD = document.getElementById('hud');
+var MSG = document.getElementById('message');
+var GO = document.getElementById('gameover');
+
+var state = {
+  score: 0,
+  hearts: 3,
+  alive: true,
+  kills: 0,
+  spawnTimer: 0,
+  spawnInterval: 3.2,
+  wave: 1
+};
+
+// ---------- Звук (синтез, без файлов) ----------
+var audioCtx = null;
+function sound(type) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    var t = audioCtx.currentTime;
+    var o = audioCtx.createOscillator();
+    var g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    if (type === 'shot') {
+      o.type = 'square'; o.frequency.setValueAtTime(160, t);
+      o.frequency.exponentialRampToValueAtTime(40, t + 0.12);
+      g.gain.setValueAtTime(0.15, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      o.start(t); o.stop(t + 0.16);
+    } else if (type === 'splat') {
+      o.type = 'sawtooth'; o.frequency.setValueAtTime(90, t);
+      o.frequency.exponentialRampToValueAtTime(20, t + 0.25);
+      g.gain.setValueAtTime(0.2, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      o.start(t); o.stop(t + 0.32);
+    } else if (type === 'hurt') {
+      o.type = 'triangle'; o.frequency.setValueAtTime(200, t);
+      o.frequency.linearRampToValueAtTime(60, t + 0.4);
+      g.gain.setValueAtTime(0.25, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      o.start(t); o.stop(t + 0.5);
+    }
+  } catch (e) { /* звук не критичен */ }
+}
+
+// ---------- Столбы арены ----------
+AFRAME.registerComponent('pillar', {
+  init: function () {
+    var p = this.data.pos.split(' ').map(Number);
+    this.el.setAttribute('geometry', 'primitive: cylinder; radius: 0.5; height: 5');
+    this.el.setAttribute('position', p[0] + ' 2.5 ' + p[1]);
+    this.el.setAttribute('material', 'color', '#1c0d0d');
+  }
+});
+
+// ---------- Кровавый взрыв при попадании ----------
+AFRAME.registerComponent('blood-burst', {
+  schema: { point: { default: '0 0 0' } },
+  init: function () {
+    var origin = this.data.point.split(' ').map(Number);
+    for (var i = 0; i < 26; i++) {
+      var drop = document.createElement('a-sphere');
+      var size = 0.02 + Math.random() * 0.05;
+      drop.setAttribute('radius', size);
+      drop.setAttribute('color', i % 4 === 0 ? '#8a0000' : '#c40000');
+      drop.setAttribute('material', 'shader', 'flat');
+      drop.object3D.position.set(origin[0], origin[1], origin[2]);
+      var dir = new THREE.Vector3(
+        (Math.random() - 0.5) * 2,
+        Math.random() * 1.2,
+        (Math.random() - 0.5) * 2
+      ).normalize();
+      drop.object3D.userData.vel = dir.multiplyScalar(2 + Math.random() * 3);
+      drop.object3D.userData.life = 0.8 + Math.random() * 0.4;
+      drop.classList.add('blood-particle');
+      FX.appendChild(drop);
+    }
+    // Пятно на земле
+    this.splat = document.createElement('a-circle');
+    this.splat.setAttribute('rotation', '-90 0 0');
+    this.splat.setAttribute('radius', 0.3 + Math.random() * 0.5);
+    this.splat.setAttribute('color', '#6d0000');
+    this.splat.setAttribute('material', 'opacity', 0.85);
+    this.splat.object3D.position.set(
+      origin[0] + (Math.random() - 0.5) * 0.4, 0.01, origin[2] + (Math.random() - 0.5) * 0.4
+    );
+    this.splat.setAttribute('splat-fade', '');
+    FX.appendChild(this.splat);
+  }
+});
+
+// Затухание пятна крови
+AFRAME.registerComponent('splat-fade', {
+  init: function () { this.t = 0; },
+  tick: function (time, dt) {
+    this.t += dt / 1000;
+    if (this.t > 15) {
+      var op = 0.85 * (1 - (this.t - 15) / 5);
+      if (op <= 0) { this.el.parentNode.removeChild(this.el); return; }
+      this.el.setAttribute('material', 'opacity', op);
+    }
+  }
+});
+
+// Физика частиц крови (общий тик)
+AFRAME.registerComponent('blood-physics', {
+  tick: function (time, dt) {
+    var s = dt / 1000;
+    var parts = document.querySelectorAll('.blood-particle');
+    for (var i = 0; i < parts.length; i++) {
+      var o = parts[i].object3D;
+      o.userData.life -= s;
+      if (o.userData.life <= 0) { parts[i].parentNode.removeChild(parts[i]); continue; }
+      o.userData.vel.y -= 9.8 * s;
+      o.position.addScaledVector(o.userData.vel, s);
+      if (o.position.y < 0.02) { o.position.y = 0.02; o.userData.vel.multiplyScalar(0.2); }
+    }
+  }
+});
+
+// ---------- Зомби ----------
+var ZOMBIE_COLORS = ['#3d5a2a', '#4a3d2a', '#2a3d4a', '#554a2a'];
+
+AFRAME.registerComponent('zombie', {
+  schema: { speed: { default: 1.2 } },
+  init: function () {
+    var el = this.el;
+    var skin = ZOMBIE_COLORS[Math.floor(Math.random() * ZOMBIE_COLORS.length)];
+    this.hp = 2;
+
+    var make = function (w, h, d, x, y, z, color) {
+      var b = document.createElement('a-box');
+      b.setAttribute('width', w); b.setAttribute('height', h); b.setAttribute('depth', d);
+      b.setAttribute('position', x + ' ' + y + ' ' + z);
+      b.setAttribute('color', color);
+      el.appendChild(b);
+      return b;
+    };
+    // Тело
+    make(0.5, 0.9, 0.3, 0, 0.9, 0, skin);
+    // Голова
+    make(0.35, 0.35, 0.35, 0, 1.55, 0, skin);
+    // Глазa — светятся
+    var eyes = make(0.3, 0.08, 0.05, 0, 1.6, 0.18, '#000');
+    eyes.setAttribute('material', 'color: #000');
+    var e1 = document.createElement('a-box');
+    e1.setAttribute('width', 0.06); e1.setAttribute('height', 0.06); e1.setAttribute('depth', 0.02);
+    e1.setAttribute('position', '-0.08 0 0.03');
+    e1.setAttribute('material', 'shader: flat; color: #ff2222');
+    eyes.appendChild(e1);
+    var e2 = e1.cloneNode(true);
+    e2.setAttribute('position', '0.08 0 0.03');
+    eyes.appendChild(e2);
+    // Руки вытянуты вперёд
+    make(0.12, 0.12, 0.7, -0.32, 1.15, 0.35, skin);
+    make(0.12, 0.12, 0.7, 0.32, 1.15, 0.35, skin);
+    // Ноги
+    make(0.16, 0.9, 0.2, -0.14, 0.45, 0, skin);
+    make(0.16, 0.9, 0.2, 0.14, 0.45, 0, skin);
+
+    el.classList.add('zombie');
+    el.addEventListener('click', this.onHit.bind(this));
+    this.wobble = Math.random() * 6.28;
+  },
+
+  onHit: function (evt) {
+    if (!state.alive) return;
+    this.hp--;
+    sound('splat');
+    var p = (evt.detail.intersection && evt.detail.intersection.point)
+      ? evt.detail.intersection.point
+      : this.el.object3D.position;
+    spawnBlood(p, 'small');
+    if (this.hp <= 0) this.die(p);
+  },
+
+  die: function (point) {
+    state.score += 10 + state.wave * 2;
+    state.kills++;
+    if (state.kills % 8 === 0) {
+      state.wave++;
+      state.spawnInterval = Math.max(1.0, state.spawnInterval - 0.4);
+      showMsg('WAVE ' + state.wave + '! THEY ARE FASTER!', 2500);
+    }
+    updateHUD();
+    spawnBlood(point, 'big');
+    sound('splat');
+    this.el.parentNode.removeChild(this.el);
+  },
+
+  tick: function (time, dt) {
+    if (!state.alive) return;
+    var s = dt / 1000;
+    var myPos = new THREE.Vector3();
+    this.el.object3D.getWorldPosition(myPos);
+    var player = new THREE.Vector3();
+    CAM.object3D.getWorldPosition(player);
+
+    var dir = player.clone().sub(myPos);
+    var dist = dir.length();
+    dir.y = 0; dir.normalize();
+
+    // Идём к игроку
+    var step = this.data.speed * s;
+    if (dist > 1.1) {
+      this.el.object3D.position.addScaledVector(dir, step);
+      // Поворот лицом к игроку
+      var angle = Math.atan2(dir.x, dir.z);
+      this.el.object3D.rotation.y = angle;
+      // Пошатывание
+      this.wobble += s * 8;
+      this.el.object3D.position.y = Math.abs(Math.sin(this.wobble)) * 0.06;
+    } else {
+      // Дошёл — кусает!
+      hurtPlayer();
+      this.el.parentNode.removeChild(this.el);
+    }
+  }
+});
+
+// ---------- Кровь ----------
+function spawnBlood(point, size) {
+  var burst = document.createElement('a-entity');
+  burst.setAttribute('blood-burst', {
+    point: point.x + ' ' + point.y + ' ' + point.z
+  });
+  FX.appendChild(burst);
+  // Удаляем частицы через 2 сек
+  setTimeout(function () {
+    if (burst.parentNode) burst.parentNode.removeChild(burst);
+  }, 2000);
+}
+
+// ---------- Урон игроку ----------
+function hurtPlayer() {
+  if (!state.alive) return;
+  state.hearts--;
+  sound('hurt');
+  updateHUD();
+  showMsg('OUCH! A ZOMBIE BIT YOU!', 1500);
+  if (state.hearts <= 0) gameOver();
+}
+
+function updateHUD() {
+  HUD.setAttribute('text', 'value', 'SCORE ' + state.score);
+  var hearts = document.querySelectorAll('.heart');
+  for (var i = 0; i < hearts.length; i++) {
+    hearts[i].setAttribute('visible', i < state.hearts ? 'true' : 'false');
+  }
+}
+
+var msgTimeout = null;
+function showMsg(text, ms) {
+  MSG.setAttribute('text', 'value', text);
+  clearTimeout(msgTimeout);
+  msgTimeout = setTimeout(function () {
+    MSG.setAttribute('text', 'value', ' ');
+  }, ms || 2000);
+}
+
+function gameOver() {
+  state.alive = false;
+  GO.setAttribute('visible', 'true');
+  showMsg(' ', 0);
+  MSG.setAttribute('text', 'value', ' ');
+}
+
+function restart() {
+  state.score = 0; state.hearts = 3; state.alive = true;
+  state.kills = 0; state.wave = 1; state.spawnInterval = 3.2;
+  GO.setAttribute('visible', 'false');
+  while (ZOMBIES.firstChild) ZOMBIES.removeChild(ZOMBIES.firstChild);
+  updateHUD();
+  showMsg('ONE MORE TIME!', 2000);
+}
+
+// ---------- Спавн зомби ----------
+AFRAME.registerComponent('blood-arena', {
+  init: function () {
+    this.spawnTimer = 0;
+    updateHUD();
+    this.shotBind = this.onShot.bind(this);
+    window.addEventListener('triggerdown', this.shotBind);
+    window.addEventListener('mousedown', this.shotBind);
+
+    var goEl = GO;
+    var self = this;
+    // Клик по экрану после смерти = рестарт
+    GO.addEventListener('click', function () {
+      if (!state.alive) restart();
+    });
+    document.addEventListener('mouseup', function (e) {
+      if (!state.alive) restart();
+    });
+    this.el.setAttribute('blood-physics', '');
+  },
+
+  onShot: function (e) {
+    if (!state.alive) { return; }
+    sound('shot');
+    // Вспышка выстрела
+    var flash = document.createElement('a-entity');
+    flash.setAttribute('light', 'type: point; color: #ffcc66; intensity: 2; distance: 6');
+    flash.object3D.position.copy(RIG.object3D.position);
+    flash.object3D.position.y = 1.5;
+    FX.appendChild(flash);
+    setTimeout(function () { if (flash.parentNode) flash.parentNode.removeChild(flash); }, 100);
+  },
+
+  tick: function (time, dt) {
+    if (!state.alive) return;
+    this.spawnTimer += dt / 1000;
+    if (this.spawnTimer >= state.spawnInterval) {
+      this.spawnTimer = 0;
+      spawnZombie();
+    }
+    // Лимит зомби для производительности Quest
+    if (ZOMBIES.children.length > 14) {
+      var oldest = ZOMBIES.children[0];
+      oldest.parentNode.removeChild(oldest);
+    }
+  }
+});
+
+function spawnZombie() {
+  var angle = Math.random() * Math.PI * 2;
+  var dist = 14 + Math.random() * 6;
+  var z = document.createElement('a-entity');
+  z.setAttribute('zombie', { speed: 0.8 + Math.random() * 0.4 + state.wave * 0.12 });
+  z.object3D.position.set(
+    CAM.object3D.getWorldPosition(new THREE.Vector3()).x + Math.cos(angle) * dist,
+    0,
+    CAM.object3D.getWorldPosition(new THREE.Vector3()).z + Math.sin(angle) * dist
+  );
+  ZOMBIES.appendChild(z);
+}
+</script>
+</body>
+</html>

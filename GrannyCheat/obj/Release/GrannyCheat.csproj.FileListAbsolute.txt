@@ -1,0 +1,12 @@
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\bin\Release\GrannyCheat.deps.json
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\bin\Release\GrannyCheat.dll
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\bin\Release\GrannyCheat.pdb
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\GrannyCheat.csproj.AssemblyReference.cache
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\GrannyCheat.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\GrannyCheat.AssemblyInfoInputs.cache
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\GrannyCheat.AssemblyInfo.cs
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\GrannyCheat.csproj.CoreCompileInputs.cache
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\GrannyCheat.dll
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\refint\GrannyCheat.dll
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\GrannyCheat.pdb
+C:\Users\user\Documents\Проект по умолчанию\GrannyCheat\obj\Release\ref\GrannyCheat.dll

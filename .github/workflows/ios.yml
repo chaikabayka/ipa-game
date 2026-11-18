@@ -1,0 +1,104 @@
+name: iOS build
+
+# Собирает .ipa из проекта Godot на бесплатном macOS-раннере GitHub.
+# Запуск: вкладка "Actions" -> "iOS build" -> "Run workflow".
+# Результат: артефакт PirateArena-ipa внизу страницы запуска.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - ".github/**"
+      - "docs/**"
+      - "*.md"
+
+env:
+  GODOT_VERSION: "4.7.2"
+  PROJECT_NAME: "PirateArena"
+  BUNDLE_ID: "com.piratearena.game"
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Кэш Godot и шаблонов экспорта
+        id: cache-godot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/godot
+            ~/Library/Application Support/Godot/export_templates
+          key: godot-${{ env.GODOT_VERSION }}-${{ runner.os }}
+
+      - name: Установка Godot + export templates
+        if: steps.cache-godot.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          mkdir -p "$HOME/godot"
+          curl -fsSL -o /tmp/godot.zip "$BASE/Godot_v${GODOT_VERSION}-stable_macos.universal.zip"
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+
+          curl -fsSL -o /tmp/templates.tpz "$BASE/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          unzip -q /tmp/templates.tpz -d /tmp/templates
+          mkdir -p "$HOME/Library/Application Support/Godot/export_templates"
+          rm -rf "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+          mv /tmp/templates/templates "$HOME/Library/Application Support/Godot/export_templates/${GODOT_VERSION}.stable"
+
+      - name: Версия Xcode
+        run: xcodebuild -version
+
+      - name: Проверка синтаксиса скриптов
+        working-directory: ${{ github.workspace }}
+        run: |
+          "$HOME/godot/Godot.app/Contents/MacOS/Godot" --headless --path . --quit-after 2 || true
+
+      - name: Экспорт Xcode-проекта
+        run: |
+          set -euo pipefail
+          mkdir -p build/ios
+          "$HOME/godot/Godot.app/Contents/MacOS/Godot" --headless --verbose \
+            --path . --export-release "iOS" "build/ios/${PROJECT_NAME}.xcodeproj"
+
+      - name: Сборка .app без подписи
+        run: |
+          set -euo pipefail
+          cd "build/ios"
+          ls -la
+          xcodebuild \
+            -project "${PROJECT_NAME}.xcodeproj" \
+            -scheme "${PROJECT_NAME}" \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Упаковка в .ipa (без подписи)
+        run: |
+          set -euo pipefail
+          APP=$(find "$RUNNER_TEMP/dd/Build/Products/Release-iphoneos" -maxdepth 1 -name "*.app" | head -n1)
+          echo "APP=$APP"
+          rm -rf "$RUNNER_TEMP/ipa"
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP" "$RUNNER_TEMP/ipa/Payload/"
+          cd "$RUNNER_TEMP/ipa"
+          zip -qry "${PROJECT_NAME}-unsigned.ipa" Payload
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp "${PROJECT_NAME}-unsigned.ipa" "$GITHUB_WORKSPACE/out/"
+
+      - name: Артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PROJECT_NAME }}-ipa
+          path: out/${{ env.PROJECT_NAME }}-unsigned.ipa
+          if-no-files-found: error
